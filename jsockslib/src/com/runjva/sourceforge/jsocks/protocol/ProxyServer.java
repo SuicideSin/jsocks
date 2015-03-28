@@ -8,10 +8,14 @@ import java.io.OutputStream;
 import java.io.PushbackInputStream;
 import java.net.ConnectException;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.NoRouteToHostException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.channels.SocketChannel;
 
+import android.annotation.SuppressLint;
+import android.net.VpnService;
 import android.util.Log;
 
 import com.runjva.sourceforge.jsocks.server.ServerAuthenticator;
@@ -56,6 +60,8 @@ public class ProxyServer implements Runnable {
 
 	static SocksProxyBase proxy;
 
+	static VpnService vpnService;
+	
 	// Public Constructors
 	// ///////////////////
 
@@ -98,6 +104,10 @@ public class ProxyServer implements Runnable {
 		UDPRelayServer.proxy = proxy;
 	}
 
+	public static void setVpnService (final VpnService v)
+	{
+		vpnService = v;
+	}
 	/**
 	 * Get proxy.
 	 * 
@@ -168,18 +178,18 @@ public class ProxyServer implements Runnable {
 			ss = new ServerSocket(port, backlog, localIP);
 			final String address = ss.getInetAddress().getHostAddress();
 			final int localPort = ss.getLocalPort();
-			//Log.i("ProxyServer","Starting SOCKS Proxy on: {}:{}", address, localPort);
+			debug("Starting SOCKS Proxy on: {}:{}", address, localPort);
 
 			while (true) {
 				final Socket s = ss.accept();
 				final String hostName = s.getInetAddress().getHostName();
 				final int port2 = s.getPort();
-				//Log.i("ProxyServer","Accepted from:{}:{}", hostName, port2);
+				debug("Accepted from:{}:{}", hostName, port2);
 
 				final ProxyServer ps = new ProxyServer(auth, s);
 				(new Thread(ps)).start();
 			}
-		} catch (final IOException ioe) {
+		} catch (final Exception ioe) {
 			ioe.printStackTrace();
 		} finally {
 		}
@@ -213,7 +223,7 @@ public class ProxyServer implements Runnable {
 				if (auth != null) {
 					auth.endSession();
 				}
-				Log.i("ProxyServer","Main thread(client->remote)stopped.");
+				debug("Main thread(client->remote)stopped.");
 			}
 			break;
 		case ACCEPT_MODE:
@@ -229,7 +239,7 @@ public class ProxyServer implements Runnable {
 				handleException(ioe);
 			} finally {
 				abort();
-				Log.i("ProxyServer","Accept thread(remote->client) stopped");
+				debug("Accept thread(remote->client) stopped");
 			}
 			break;
 		case PIPE_MODE:
@@ -238,13 +248,13 @@ public class ProxyServer implements Runnable {
 			} catch (final IOException ioe) {
 			} finally {
 				abort();
-				Log.i("ProxyServer","Support thread(remote->client) stopped");
+				debug("Support thread(remote->client) stopped");
 			}
 			break;
 		case ABORT_MODE:
 			break;
 		default:
-			Log.w("ProxyServer","Unexpected MODE " + mode);
+			debug("Unexpected MODE " + mode);
 		}
 	}
 
@@ -256,13 +266,13 @@ public class ProxyServer implements Runnable {
 		try {
 			auth = auth.startSession(sock);
 		} catch (final IOException ioe) {
-			Log.w("ProxyServer","Auth throwed exception:", ioe);
+			debug("Auth throwed exception:", ioe);
 			auth = null;
 			return;
 		}
 
 		if (auth == null) { // Authentication failed
-			Log.i("ProxyServer","Authentication failed");
+			debug("Authentication failed");
 			return;
 		}
 
@@ -337,16 +347,28 @@ public class ProxyServer implements Runnable {
 		sendErrorMessage(error_code);
 	}
 
+	@SuppressLint("NewApi")
 	private void onConnect(final ProxyMessage msg) throws IOException {
 		Socket s;
 
 		if (proxy == null) {
-			s = new Socket(msg.ip, msg.port);
+			
+			s = SocketChannel.open().socket();
+			if ((null != s) && (null != vpnService)) {
+			    vpnService.protect(s);
+			}
+			
+			s.connect(new InetSocketAddress(msg.ip,msg.port));
+			
 		} else {
 			s = new SocksSocket(proxy, msg.ip, msg.port);
+
+			if (vpnService != null)
+				vpnService.protect(s);
 		}
 
-		Log.i("ProxyServer","Connected to " + s.getInetAddress() + ":" + s.getPort());
+			
+		debug("Connected to " + s.getInetAddress() + ":" + s.getPort());
 
 		ProxyMessage response = null;
 		final InetAddress localAddress = s.getLocalAddress();
@@ -377,7 +399,7 @@ public class ProxyServer implements Runnable {
 
 		final InetAddress inetAddress = ss.getInetAddress();
 		final int localPort = ss.getLocalPort();
-		//Log.i("ProxyServer","Trying accept on {}:{}", inetAddress, localPort);
+		debug("Trying accept on {}:{}", inetAddress, localPort);
 
 		if (msg.version == 5) {
 			final int cmd = SocksProxyBase.SOCKS_SUCCESS;
@@ -410,10 +432,10 @@ public class ProxyServer implements Runnable {
 				}
 			}
 		} catch (final EOFException e) {
-			//log.debug("Connection closed while we were trying to accept", e);
+			debug("Connection closed while we were trying to accept", e);
 			return;
 		} catch (final InterruptedIOException e) {
-			//log.debug("Interrupted by unsucessful accept thread", e);
+			debug("Interrupted by unsucessful accept thread", e);
 			if (mode != PIPE_MODE) {
 				return;
 			}
@@ -435,7 +457,7 @@ public class ProxyServer implements Runnable {
 		if (msg.ip.getHostAddress().equals("0.0.0.0")) {
 			msg.ip = sock.getInetAddress();
 		}
-		//Log.i("ProxyServer","Creating UDP relay server for {}:{}", msg.ip, msg.port);
+		debug("Creating UDP relay server for {}:{}", msg.ip, msg.port);
 
 		relayServer = new UDPRelayServer(msg.ip, msg.port,
 				Thread.currentThread(), sock, auth);
@@ -503,7 +525,7 @@ public class ProxyServer implements Runnable {
 
 		final InetAddress inetAddress = s.getInetAddress();
 		final int port = s.getPort();
-		//Log.i("ProxyServer","Accepted from {}:{}", s.getInetAddress(), port);
+		debug("Accepted from {}:{}", s.getInetAddress(), port);
 
 		ProxyMessage response;
 
@@ -573,7 +595,7 @@ public class ProxyServer implements Runnable {
 		}
 		mode = ABORT_MODE;
 		try {
-			Log.i("ProxyServer","Aborting operation");
+			debug("Aborting operation");
 			if (remote_sock != null) {
 				remote_sock.close();
 			}
@@ -597,10 +619,11 @@ public class ProxyServer implements Runnable {
 	}
 
 	static final void log(final ProxyMessage msg) {
-		Log.d("ProxyServer","Request version: {" + msg.version + "}, Command: "+command2String(msg.command));
+		debug("Request version: {}, Command: ", msg.version,
+				command2String(msg.command));
 
-		//final String user = msg.version == 4 ? ", User:" + msg.user : "";
-		//log.debug("IP:" + msg.ip + ", Port:" + msg.port + user);
+		final String user = msg.version == 4 ? ", User:" + msg.user : "";
+		debug("IP:" + msg.ip + ", Port:" + msg.port + user);
 	}
 
 	private void pipe(final InputStream in, final OutputStream out)
@@ -640,5 +663,33 @@ public class ProxyServer implements Runnable {
 		} else {
 			return "Unknown Command " + cmd;
 		}
+	}
+	
+	public static void debug (String msg)
+	{
+		Log.d("Proxy",msg);
+	}
+	
+	public static void debug (String msg, String host, int port)
+	{
+		debug (msg + ": " + host + ":" + port);
+	}
+	
+	public static void debug (String msg, Exception e)
+	{
+
+		Log.e("Proxy",msg,e);
+	}
+	
+	public static void debug (String msg, InetAddress addr, int port)
+	{
+
+		debug (msg + ": " + addr.getHostAddress() + ": " + port);
+	}
+	
+	public static void debug (String msg, int type, String log)
+	{
+
+		debug (msg + " type:" + type + "=" + log);
 	}
 }
