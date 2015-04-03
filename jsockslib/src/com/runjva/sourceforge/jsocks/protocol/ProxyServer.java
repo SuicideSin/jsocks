@@ -61,6 +61,8 @@ public class ProxyServer implements Runnable {
 	static SocksProxyBase proxy;
 
 	static VpnService vpnService;
+
+	static boolean DEBUG = false;
 	
 	// Public Constructors
 	// ///////////////////
@@ -667,29 +669,31 @@ public class ProxyServer implements Runnable {
 	
 	public static void debug (String msg)
 	{
-		Log.d("Proxy",msg);
+		if (DEBUG)
+			Log.d("Proxy",msg);
 	}
 	
 	public static void debug (String msg, String host, int port)
 	{
-		debug (msg + ": " + host + ":" + port);
+		if (DEBUG)
+			debug (msg + ": " + host + ":" + port);
 	}
 	
 	public static void debug (String msg, Exception e)
 	{
-
-		Log.e("Proxy",msg,e);
+		if (DEBUG)
+			Log.e("Proxy",msg,e);
 	}
 	
 	public static void debug (String msg, InetAddress addr, int port)
 	{
-
-		debug (msg + ": " + addr.getHostAddress() + ": " + port);
+		if (DEBUG)
+			debug (msg + ": " + addr.getHostAddress() + ": " + port);
 	}
 	
 	public static void debug (String msg, int type, String log)
 	{
-
-		debug (msg + " type:" + type + "=" + log);
+		if (DEBUG)
+			debug (msg + " type:" + type + "=" + log);
 	}
 }
